@@ -1,47 +1,49 @@
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import spacy
 import os
 
+# Initialisation de l'application FastAPI
 app = FastAPI()
 
-# Charger le modèle NLP de spaCy
-nlp = spacy.load("fr_core_news_sm")
+# Clé API pour authentification
+API_KEY = "ma_clé_secrète"
 
-# Clé API temporaire (remplace ça par une gestion dynamique plus tard)
-API_KEY = os.getenv("API_KEY", "dev-ai-secret-key")
+# Chargement du modèle NLP avec gestion des erreurs
+try:
+    nlp = spacy.load("fr_core_news_sm")
+except Exception as e:
+    raise RuntimeError(f"Erreur lors du chargement du modèle NLP: {e}")
 
+# Servir les fichiers statiques pour le frontend
+app.mount("/static", StaticFiles(directory="frontend"), name="static")
+
+# Modèle de requête attendu
 class TextRequest(BaseModel):
-    texte: str
-
-def verifier_api_key(api_key: str):
-    if api_key != API_KEY:
-        raise HTTPException(status_code=401, detail="Clé API invalide")
+    text: str
 
 @app.get("/")
-def home():
-    return {"message": "Bienvenue sur l'API NLP de dev-ai.fr"}
+def serve_home():
+    """Retourne l'interface utilisateur HTML"""
+    return FileResponse(os.path.join("frontend", "index.html"))
 
-@app.get("/health")
-def health_check():
-    return {"status": "OK"}
+@app.post("/analyze")
+def analyze_text(request: TextRequest, x_api_key: str = Header(None)):
+    """Analyse NLP du texte avec nettoyage."""
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Clé API invalide")
 
-@app.post("/analyse-texte")
-def analyse_texte(request: TextRequest, api_key: str = Header(None)):
-    verifier_api_key(api_key)
-    
-    doc = nlp(request.texte)
-    tokens = [token.text for token in doc]
-    entites = [{"texte": ent.text, "label": ent.label_} for ent in doc.ents]
+    # Analyse NLP avec spaCy
+    doc = nlp(request.text.strip())
+
+    tokens = [token.text for token in doc if not token.is_space]
+    lemmas = [token.lemma_ for token in doc if not token.is_space]
+    pos_tags = [token.pos_ for token in doc if not token.is_space]
 
     return {
         "tokens": tokens,
-        "entites": entites
+        "lemmas": lemmas,
+        "pos_tags": pos_tags
     }
-
-@app.post("/detect-langue")
-def detect_langue(request: TextRequest, api_key: str = Header(None)):
-    verifier_api_key(api_key)
-    
-    doc = nlp(request.texte)
-    return {"langue_detectee": doc.lang_}
